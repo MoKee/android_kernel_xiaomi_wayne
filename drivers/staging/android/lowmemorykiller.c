@@ -77,17 +77,98 @@ static bool kill_one_more;
 	} while (0)
 
 
-static bool test_tsk_lmk_waiting(struct task_struct *p)
-{
-	struct task_struct *t;
+static DECLARE_WAIT_QUEUE_HEAD(event_wait);
+static DEFINE_SPINLOCK(lmk_event_lock);
+static struct circ_buf event_buffer;
+#define MAX_BUFFERED_EVENTS 8
+#define MAX_TASKNAME 128
 
-	for_each_thread(p, t) {
-		task_lock(t);
-		if (unlikely(task_lmk_waiting(t))) {
-			task_unlock(t);
-			return true;
-		}
-		task_unlock(t);
+struct lmk_event {
+	char taskname[MAX_TASKNAME];
+	pid_t pid;
+	uid_t uid;
+	pid_t group_leader_pid;
+	unsigned long min_flt;
+	unsigned long maj_flt;
+	unsigned long rss_in_pages;
+	short oom_score_adj;
+	short min_score_adj;
+	unsigned long long start_time;
+	struct list_head list;
+};
+
+void handle_lmk_event(struct task_struct *selected, int selected_tasksize,
+		      short min_score_adj)
+{
+	int head;
+	int tail;
+	struct lmk_event *events;
+	struct lmk_event *event;
+	int res;
+	char taskname[MAX_TASKNAME];
+
+	res = get_cmdline(selected, taskname, MAX_TASKNAME - 1);
+
+	/* No valid process name means this is definitely not associated with a
+	 * userspace activity.
+	 */
+
+	if (res <= 0 || res >= MAX_TASKNAME)
+		return;
+
+	taskname[res] = '\0';
+
+	spin_lock(&lmk_event_lock);
+
+	head = event_buffer.head;
+	tail = READ_ONCE(event_buffer.tail);
+
+	/* Do not continue to log if no space remains in the buffer. */
+	if (CIRC_SPACE(head, tail, MAX_BUFFERED_EVENTS) < 1) {
+		spin_unlock(&lmk_event_lock);
+		return;
+	}
+
+	events = (struct lmk_event *) event_buffer.buf;
+	event = &events[head];
+
+	memcpy(event->taskname, taskname, res + 1);
+
+	event->pid = selected->pid;
+	event->uid = from_kuid_munged(current_user_ns(), task_uid(selected));
+	if (selected->group_leader)
+		event->group_leader_pid = selected->group_leader->pid;
+	else
+		event->group_leader_pid = -1;
+	event->min_flt = selected->min_flt;
+	event->maj_flt = selected->maj_flt;
+	event->oom_score_adj = selected->signal->oom_score_adj;
+	event->start_time = nsec_to_clock_t(selected->real_start_time);
+	event->rss_in_pages = selected_tasksize;
+	event->min_score_adj = min_score_adj;
+
+	event_buffer.head = (head + 1) & (MAX_BUFFERED_EVENTS - 1);
+
+	spin_unlock(&lmk_event_lock);
+
+	wake_up_interruptible(&event_wait);
+}
+
+static int lmk_event_show(struct seq_file *s, void *unused)
+{
+	struct lmk_event *events = (struct lmk_event *) event_buffer.buf;
+	int head;
+	int tail;
+	struct lmk_event *event;
+
+	spin_lock(&lmk_event_lock);
+
+	head = event_buffer.head;
+	tail = event_buffer.tail;
+
+	if (head == tail) {
+		spin_unlock(&lmk_event_lock);
+		return -EAGAIN;
 	}
 
 	return false;
@@ -208,19 +289,17 @@ again:
 			     other_free * (long)(PAGE_SIZE / 1024));
 		lowmem_deathpending_timeout = jiffies + HZ;
 		rem += selected_tasksize;
-	}
-
-	if (kill_one_more) {
-		selected = NULL;
-		kill_one_more = false;
-		lowmem_print(1, "lowmem_scan kill one more process\n");
-		goto again;
+		get_task_struct(selected);
 	}
 
 	lowmem_print(4, "lowmem_scan %lu, %x, return %lu\n",
 		     sc->nr_to_scan, sc->gfp_mask, rem);
 	rcu_read_unlock();
 
+	if (selected) {
+		handle_lmk_event(selected, selected_tasksize, min_score_adj);
+		put_task_struct(selected);
+	}
 	return rem;
 }
 
