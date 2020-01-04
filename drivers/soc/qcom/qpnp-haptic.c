@@ -1047,27 +1047,24 @@ static int qpnp_hap_parse_buffer_dt(struct qpnp_hap *hap)
 		pr_err("Invalid wave samples, use default");
 		for (i = 0; i < QPNP_HAP_WAV_SAMP_LEN; i++)
 			hap->wave_samp[i] = QPNP_HAP_WAV_SAMP_MAX;
-	} else {
+	} else
 		memcpy(hap->wave_samp, prop->value, QPNP_HAP_WAV_SAMP_LEN);
-	}
 
 		prop = of_find_property(pdev->dev.of_node,
 			"qcom,wave-samples-two", &temp);
 	if (!prop || temp != QPNP_HAP_WAV_SAMP_LEN) {
 		for (i = 0; i < QPNP_HAP_WAV_SAMP_LEN; i++)
 			hap->wave_samp_two[i] = QPNP_HAP_WAV_SAMP_MAX;
-	} else {
+	} else
 		memcpy(hap->wave_samp_two, prop->value, QPNP_HAP_WAV_SAMP_LEN);
-	}
 
 		prop = of_find_property(pdev->dev.of_node,
 			"qcom,wave-samples-three", &temp);
 	if (!prop || temp != QPNP_HAP_WAV_SAMP_LEN) {
 		for (i = 0; i < QPNP_HAP_WAV_SAMP_LEN; i++)
 			hap->wave_samp_three[i] = QPNP_HAP_WAV_SAMP_MAX;
-	} else {
+	} else
 		memcpy(hap->wave_samp_three, prop->value, QPNP_HAP_WAV_SAMP_LEN);
-	}
 
 	return 0;
 }
@@ -2270,26 +2267,19 @@ static void qpnp_hap_td_enable(struct timed_output_dev *dev, int time_ms)
 	if (time_ms < 10)
 		time_ms = 10;
 
-    if ((time_ms >= 30) || (time_ms != 11) || (time_ms != 15) || (time_ms != 20))
-	{
-	vmax_mv = 2204;
-	qpnp_hap_vmax_config(hap, vmax_mv, false);
-	hap->play_mode = QPNP_HAP_DIRECT;
-    }
-	else
-	{
-	hap->play_mode = QPNP_HAP_BUFFER;
-	qpnp_hap_parse_buffer_dt(hap);
-	    if (time_ms == 20)
-		{
-		qpnp_hap_buffer_config(hap, hap->wave_samp_three, true);
-		}else if (time_ms == 15)
-		{
-		qpnp_hap_buffer_config(hap, hap->wave_samp_two, true);
-		}else if (time_ms == 11)
-		{
-		qpnp_hap_buffer_config(hap, hap->wave_samp, true);
-		}
+	if ((time_ms >= 30) || (time_ms != 11) || (time_ms != 15) || (time_ms != 20)) {
+		vmax_mv = 2204;
+		qpnp_hap_vmax_config(hap, vmax_mv, false);
+		hap->play_mode = QPNP_HAP_DIRECT;
+	} else {
+		hap->play_mode = QPNP_HAP_BUFFER;
+		qpnp_hap_parse_buffer_dt(hap);
+		if (time_ms == 20)
+			qpnp_hap_buffer_config(hap, hap->wave_samp_three, true);
+		else if (time_ms == 15)
+			qpnp_hap_buffer_config(hap, hap->wave_samp_two, true);
+		else if (time_ms == 11)
+			qpnp_hap_buffer_config(hap, hap->wave_samp, true);
 
 	vmax_mv = 2204;
 	qpnp_hap_vmax_config(hap, vmax_mv, false);
@@ -2297,6 +2287,7 @@ static void qpnp_hap_td_enable(struct timed_output_dev *dev, int time_ms)
 	hap->play_mode = QPNP_HAP_BUFFER;
 	hap->wave_shape = QPNP_HAP_WAV_SQUARE;
 	}
+
 	qpnp_hap_mod_enable(hap, false);
 	qpnp_hap_play_mode_config(hap);
 	if (is_sw_lra_auto_resonance_control(hap))
